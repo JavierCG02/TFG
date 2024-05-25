@@ -1,0 +1,1025 @@
+---
+title: "Análisis de emociones y sentimientos de preguntas abiertas en encuestas"
+format: 
+    html:
+        toc: true
+        toc-location: right
+        toc-title: "Índice de contenidos"
+        embed-resources: true
+        smooth-scroll: true
+        margin-left: 1rem
+        margin-right: 1rem
+        gutter-width: 1.5em
+        theme: united
+fontsize: "1em"
+mainfont: Arial
+execute: 
+  cache: false
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message= FALSE, warning = FALSE, fig.align = "center")
+```
+
+# DATA MINING
+
+Carga de paquetes:
+
+```{r}
+pacman::p_load(stringr,haven,dplyr,ggplot2,tidytext,sjlabelled,quanteda,quanteda.textstats,quanteda.textplots,textdata,tidyr)
+```
+
+Carga de datos:
+
+```{r}
+datos <- read_sav("Datos.sav")
+
+# Eliminar los labels del nombre de las columnas
+datos <- remove_all_labels(datos)
+```
+
+Hay 2 variables: REGISTRO y RESPUESTA.
+
+- REGISTRO es el ID de cada dato, pero. Pese a que estos datos son un identificador (REGISTRO), se decide prescindir del identificador porque añade complejidad innecesaria y se crea uno nuevo, al que denominamos “datosID”.
+- RESPUESTA es la respuesta que ha dado el entrevistado a la pregunta abierta.
+
+```{r}
+datos <- datos %>% mutate(datosID=row_number())
+datos <- datos[,-1] # Se elimina ESTUDIO
+datos <- datos[, c(ncol(datos), 1:(ncol(datos)-1))]
+colnames(datos) <- c("datosID", "RESPUESTA")
+
+summary(datos)
+```
+
+## Preprocesamiento
+
+Es la variable RESPUESTA la que incluye la información a analizar (texto).
+
+En primer lugar, se eliminan posibles nombres de usuario del texto puesto que no aportan información relevante (además de por motivos de privacidad). Aunque tal vez en nuestros datos esto no se dé.
+
+```{r}
+#Eliminamos un posible nombre de usuario del texto
+datos$RESPUESTA <- datos$RESPUESTA %>% 
+  str_replace_all(pattern = "@\\w+", replacement = "")
+
+#En este código, @\\w+ es una expresión regular que busca el símbolo @ seguido de uno o más caracteres alfanuméricos, que corresponde a una mención de usuario típica en Twitter (por ejemplo. 
+
+#La función str_replace_all reemplaza todas las ocurrencias de este patrón en el texto con un string vacío, #efectivamente eliminando las menciones.
+```
+
+A continuación, se eliminan modifican aquellas palabras que sean q o k por que, es decir, la palabra completa.
+
+```{r}
+datos$RESPUESTA <- gsub("\\b(k|q)\\b", "que", datos$RESPUESTA, ignore.case = TRUE)
+```
+
+Cambio de encuestas por encuesta
+
+```{r}
+datos$RESPUESTA <- gsub("\\bencuestas\\b", "encuesta", datos$RESPUESTA, ignore.case = TRUE)
+```
+
+Cambio de privadas por privada
+
+```{r}
+datos$RESPUESTA <- gsub("\\privadas\\b", "privada", datos$RESPUESTA, ignore.case = TRUE)
+```
+
+Uso de unnest_tokens()
+
+```{r}
+tidydatos <- datos %>% unnest_tokens(palabra,RESPUESTA,strip_punct=TRUE,strip_numeric = TRUE) %>% 
+  anti_join(get_stopwords(language = "es"),by = c("palabra"="word")) 
+```
+
+Tal y como se había mencionado, también se crea la estructura de texto corpus mediante la función corpus().
+
+### Corpus
+
+```{r}
+corpus_datos <- corpus(datos, docid_field = "datosID",text_field = "RESPUESTA")
+```
+
+<p align="justify">
+A continuación, se realizan una serie de operaciones encadenadas para convertir el corpus en una matriz de documentos-términos (DTM). A partir del corpus anteriormente creado la función tokens() divide cada documento en el corpus en tokens. Luego, la función dfm convierte los tokens en una matriz de documentos-términos. La matriz resultante es almacenada en el objeto dtm_datos.
+</p>
+
+### Tokenizar
+
+En el proceso de tokenización incluímos las tareas de pre-procesamiento
+
+```{r}
+dtm_datos <- corpus_datos |> tokens() |> dfm()
+```
+
+A continuación, se presenta un gráfico con los 20 términos más frecuentes **antes** de incluir las tareas de pre-procesamiento.
+
+```{r}
+top_20 <- textstat_frequency(dtm_datos, n = 20)
+
+ggplot(top_20, aes(x = reorder(feature, frequency), y = frequency)) +
+  geom_col(fill = "red") +
+  coord_flip() +
+  labs(title = "Los 20 términos más frecuentes",
+       x = "Términos",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10),
+        axis.title = element_text(size = 12, face = "bold"))
+```
+
+<p align="justify">
+Tal y como se puede apreciar, si no se incluyen las tareas de preprocesamiento en la tokenización, los términos más frecuentes son signos de puntuación, preposiciones, conjunciones...
+</p>
+
+<p align="justify">
+A continuación, se efectúa el proceso de tokenización junto con las tareas de pre-procesamiento. Esto incluye operaciones para limitar texto como:
+
++ remove_punct = TRUE: elimina la puntuación de los tokens,
+
++ remove_numbers = TRUE: elimina los números de los tokens, 
+
++ remove_symbols = TRUE: elimina símbolos especiales de los tokens, 
+
++ remove_url = TRUE: elimina las URLs de los tokens. 
+</p>
+
+### Tokenizar con limpieza
+
+```{r}
+# Paquete quanteda
+dtm_datos <- corpus_datos |> tokens(remove_punct=TRUE,
+                                      remove_numbers =TRUE,
+                                      remove_symbols = TRUE, 
+                                      remove_url = TRUE) |> 
+  tokens_tolower() |> 
+  tokens_remove(stopwords("es")) |> # El stopwords de quanteda
+  dfm()
+```
+
+Se ha usado el stopwords de quanteda
+
+**Frecuencia de términos**
+A continuación, se pueden observar las 20 palabras más frecuentes después del preprocesamiento y que constituyen el inicio de nuestro análisis descriptivo
+
+**YA LIMPIO**
+
+```{r}
+top_20 <- textstat_frequency(dtm_datos, n = 20)
+
+ggplot(top_20, aes(x = reorder(feature, frequency), y = frequency)) +
+  geom_col(fill = "red") +
+  coord_flip() +
+  labs(title = "Los 20 términos más frecuentes",
+       x = "Términos",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10),
+        axis.title = element_text(size = 12, face = "bold"))
+```
+
+Wordcloud
+
+```{r}
+textplot_wordcloud(dtm_datos,
+                   color="darkred", min_count = 15) # Palabra que aparecen más de 5 veces
+```
+
+### *N-gramas*
+
+Bigramas
+
+```{r}
+bigramasTidy <- datos %>% 
+  unnest_tokens(bigram, RESPUESTA, token="ngrams",n=2) %>% 
+  filter(!is.na(bigram))
+```
+
+```{r}
+#frecuencias
+bigramasTidy %>%
+  count(bigram, sort = TRUE) %>% head(n=20)
+```
+
+Lo que se observa NO aporta ningún tipo de información prácticamente ya que son preposiciones junto a artículos, etc.
+
+```{r}
+bigramas_separa <- bigramasTidy %>%
+  separate(bigram, c("palabra1", "palabra2"), sep = " ")
+
+bigramas_separa %>%
+  count(palabra1,palabra2, sort = TRUE) %>% 
+  head(n=20)
+```
+
+Tener en cuenta que hay que cargar las palabras del diccionario de tidytext en español. Paquete TIDYTEXT
+
+```{r}
+bigramas_filtrado <- bigramas_separa %>%
+  filter(!palabra1 %in% get_stopwords(language = "es")$word) %>%
+  filter(!palabra2 %in% get_stopwords(language = "es")$word)
+
+# Volvemos a ver frec
+bi_fil_10 <- bigramas_filtrado %>% 
+  count(palabra1, palabra2, sort = TRUE) %>% 
+  head(10)
+
+reactable::reactable(bi_fil_10, 
+                     fullWidth = F)
+```
+
+```{r}
+bigramas_con_stopwords <- bigramas_filtrado %>%
+  unite(bigram,palabra1,palabra2,sep=" ")
+
+bigramas_con_stopwords %>% select(bigram)%>% count(bigram, sort = TRUE) %>% head(10)
+```
+
+Veamos varios ejemplos:
+
+¿Qué palabras suelen anteceder a la palabra “ambiente”?
+
+```{r}
+bigramas_filtrado %>%
+  filter(palabra2 == "encuesta") %>%
+  count(palabra1, sort = TRUE)
+```
+
+¿Qué palabras suelen anteceder a la palabra “gracias”?
+
+```{r}
+bigramas_filtrado %>%
+  filter(palabra2 == "gracias") %>%
+  count(palabra1, sort = TRUE) %>% head(10)
+```
+
+Asimismo, también se podría combinar los bigramas con la ponderación tf_idf.
+
+```{r}
+bigrama_tf_idf <- bigramas_con_stopwords %>%
+  count(datosID,bigram) %>%
+  bind_tf_idf(bigram, datosID, n) %>%
+  arrange(desc(tf_idf))
+
+bigrama_tf_idf %>% arrange(desc(tf_idf)) %>% head(10)
+```
+
+Ahora se pueden obervar otras palabras que toman especial relevancia.
+
+Trigramas
+
+```{r}
+trigramasTidy <- datos %>% unnest_tokens(trigram, RESPUESTA, token="ngrams",n=3) %>%
+  filter(!is.na(trigram))
+
+# Frecuencias
+trigramasTidy %>%
+  count(trigram, sort = TRUE) %>% head(n=10)
+```
+
+```{r}
+trigramas_separa <- trigramasTidy %>%
+  separate(trigram, c("palabra1", "palabra2","palabra3"), sep = " ")
+```
+
+```{r}
+trigramas_filtrado <- trigramas_separa %>%
+  filter(!palabra1 %in% get_stopwords(language = "es")$word) %>%
+  filter(!palabra2 %in% get_stopwords(language = "es")$word) %>%
+  filter(!palabra3 %in% get_stopwords(language = "es")$word)
+
+# Volvemos a ver frec
+
+trigramas_filtrado$palabra1 <- gsub("[0-9[:punct:]]", " ", trigramas_filtrado$palabra1) # Eliminar números de las columnas
+trigramas_filtrado$palabra2 <- gsub("[0-9[:punct:]]", " ", trigramas_filtrado$palabra2) # Eliminar números de las columnas
+trigramas_filtrado$palabra3 <- gsub("[0-9[:punct:]]", " ", trigramas_filtrado$palabra3) # Eliminar números de las columnas
+
+trigramas_filtrado <- trigramas_filtrado[apply(trigramas_filtrado, 1, function(row) !any(grepl("\\s", row))), , drop = FALSE] # Eliminar aquellas rows ue tengan un whitespace
+
+tri_fil_10 <- trigramas_filtrado %>% 
+  count(palabra1, palabra2, palabra3, sort = TRUE) %>% 
+  head(10)
+
+reactable::reactable(tri_fil_10, columns = list(
+  palabra1 = reactable::colDef(width = 150),
+  palabra1 = reactable::colDef(width = 150),
+  palabra1 = reactable::colDef(width = 150),
+  n = reactable::colDef(width = 50)),
+  fullWidth = F)
+```
+
+```{r}
+trigramas_con_stopwords <- trigramas_filtrado %>%
+  unite(trigram,palabra1,palabra2,palabra3,sep=" ")
+
+trigramas_con_stopwords %>% select(trigram)%>% count(trigram,sort = TRUE) %>% head(10)
+```
+
+```{r}
+trigramas_con_stopwords %>% select(trigram)%>% count(trigram,sort = TRUE) %>% tail(10)
+```
+
+En trigramas se observa que posiblemente la gente considera que se hacen encuestas demasiado largas
+
+### **KWIC**
+
+```{r}
+corpus_datos %>% kwic(pattern="encuesta")
+
+kwic_ej <- corpus_datos %>% 
+  tokens(remove_punct=TRUE,remove_numbers =TRUE,remove_symbols = TRUE, remove_url = TRUE) %>% 
+  tokens_tolower() %>% 
+  kwic(pattern="encuesta") %>% 
+  head(10)
+kwic_ej <- as.data.frame(kwic_ej)
+
+kwic_ej2 <- kwic_ej[,-c(1:3,7)]
+
+reactable::reactable(kwic_ej2)
+```
+
+### STEMMING y LEMATIZACIÓN
+
+NO SE HA HECHO NI STEMMING NI LEMATIZACIÓN
+
+## Estructura de los datos
+
+### PONDERACIONES Y TRIMMING
+
+En primer lugar, dado que se está realizando un análisis en documentos tan breves como son REGISTROS DE RESPUESTAS ABIERTAS, se encuentra mucho ruido, es decir, palabras especificas de un REGISTRO. Por lo tanto, al igual que en el pre-procesamiento se había tratado términos informativo que son muy generales (stopwords), ahora se tratan también estos términos idiosincráticos antes de aplicar las ponderaciones.
+
+```{r}
+dtm_trimmed <- dtm_datos %>% dfm_trim(min_termfreq = 2,
+                                max_termfreq = NULL,
+                                min_docfreq = NULL,
+                                max_docfreq = NULL)
+```
+
+### Ponderación Local
+
+```{r}
+# Proporcional
+(dtm_prop <- dtm_trimmed %>% 
+   dfm_weight(scheme = "prop"))
+```
+
+```{r}
+# Logaritmica
+(dtm_log <-dtm_trimmed %>% 
+  dfm_weight(scheme = "logcount",base=exp(1)))
+```
+
+A continuación, se utiliza la ponderación TF-IDF (Term Frequency-Inverse Document Frequency).
+
+```{r}
+# Frecuencia inversa
+(dtm_tfidf <- dtm_trimmed %>% 
+  dfm_tfidf()) 
+```
+
+Explicar los resultados obtenidos de estos 3, o por lo menos aquella que más llama la atención
+
+### Ponderación Global
+
+```{r}
+(dtm_tfidf2 <- dtm_trimmed %>% 
+  dfm_tfidf(scheme_tf = "prop"))
+```
+
+A continuación, se puede observar como han variado los pesos que tienen los términos en la DTM según usando la ponderación tf_idf 
+
+```{r}
+# Top ten features con mayor valor para tf_idf
+pacman::p_load(tidyr)
+
+pesos <- dtm_tfidf2 %>% 
+  convert(to="data.frame") %>%  
+  gather(key = "feature", value = "tfidf", -doc_id) %>% 
+  arrange(desc(tfidf)) %>% 
+  head(10)
+
+reactable::reactable(pesos,
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 2)), fullWidth = F)
+```
+
+Los términos con mayor peso son “hola”, “atiende”, “disposición”, “hacerla”, **“abril”**, “digan”, “planeta” entre otros.
+
+```{r}
+top_20 <- textstat_frequency(dtm_tfidf2,n=20,force=TRUE)
+
+ggplot(top_20, aes(x = reorder(feature, frequency), y = frequency)) +
+  geom_col(fill = "red") +
+  coord_flip() +
+  labs(title = "Los 20 términos más frecuentes según peso",
+       x = "Términos",
+       y = "Frecuencia") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10),
+        axis.title = element_text(size = 12, face = "bold"))
+```
+
+Comparar estas frecuencias con las obtenidas anteriormente.
+
+## Visualizaciones y analítica descriptiva
+
+### CORRELACIÓN
+
+```{r}
+corr_dtm <- dfm_weight(dtm_datos, scheme = "prop") %>% 
+  textstat_simil(y = dtm_datos[, c("demasiado", "gracias")], method = "correlation", margin = "features") %>%
+  as.data.frame() 
+
+demasiado_cor <- corr_dtm %>% filter(feature2=="demasiado") %>%  arrange(-correlation) %>% head(5)
+
+reactable::reactable(demasiado_cor,
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 2)), fullWidth = F)
+
+
+grac_cor <- corr_dtm %>% filter(feature2=="gracias") %>%  arrange(-correlation) %>% head(5)
+
+reactable::reactable(grac_cor,columns = list(
+  feature1 = reactable::colDef(width = 150)),
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 2)), fullWidth = F)
+```
+
+Orden correlación por encima
+
+```{r}
+corr_dtm %>% filter(correlation > 0.36) %>% arrange(desc(correlation))
+```
+
+Orden correlación por debajo
+
+```{r}
+corr_dtm %>% filter(correlation < -0.09) %>% arrange(correlation)
+```
+
+### **SIMILITUD COSENO**
+
+```{r}
+cos_dtm <- dfm_weight(dtm_datos, scheme = "prop") %>% 
+  textstat_simil(y = dtm_datos[, c("gracias", "demasiado")], method = "cosine", margin = "features") %>%
+  as.data.frame()
+
+cos_dtm %>% 
+  filter(feature2 == "demasiado") %>% 
+  arrange(-cosine) %>% 
+  head(n = 10) %>% 
+  ggplot(aes(y = reorder(feature1, cosine), x = cosine)) +
+  geom_point(size = 3, color = "darkblue", shape = 16) +
+  geom_text(aes(label = round(cosine, 2)), color = "black", vjust = -0.5, size = 4, hjust = -0.2) +
+  labs(title = "Top 10 'demasiado' Relacionado al valor del coseno",
+       x = "Valor del coseno",
+       y = "") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title.y = element_blank())
+```
+
+El coseno máximo que hay es del 35%.
+
+```{r}
+cos_dtm %>% filter(cosine>0.35) %>% arrange(desc(cosine)) 
+```
+
+### **Análisis de términos relevantes (keyness)**
+
+No se ha realizado
+
+### **Gráfico de dispersión léxica**
+
+P.e., ¿En qué documentos del corpus (y dónde) aparece el término gobierno?
+
+```{r}
+kwic(corpus_datos,pattern="gobierno") %>% textplot_xray()
+```
+
+### **Matriz co-ocurrencia de términos**
+
+En primer lugar, se construye la matriz de coocurrencia de términos a partir de la DTM. No obstante, se debe recortar la DTM, en caso contrario la matriz de coocurrencias será excesivamente grande.
+
+```{r}
+dtm_trim <- dfm_trim(dtm_datos, min_termfreq = 5,max_docfreq = 100)
+```
+
+Se observan los términos más frecuentes
+
+```{r}
+topfeatures(dtm_trim)
+```
+
+Seguidamente, se construye la matriz de co-ocurrencia de términos (funcion fcm).
+
+```{r}
+(cooc_delta <- fcm(dtm_trim))
+```
+
+Interesante ver educación y sanidad
+
+### **GRAFO**
+
+```{r}
+set.seed(134) # útil para mantener el layout en diferentes ejecuciones
+
+textplot_network(cooc_delta,  min_freq = 10,
+                 edge_alpha = 0.1, 
+                 edge_size = 5,
+                 edge_color = "purple",
+                 vertex_labelsize = log(rowSums(cooc_delta)))
+```
+
+```{r}
+rm(list = ls())
+```
+
+## Análsisis de sentimientos
+
+Paquetes:
+
+```{r}
+pacman::p_load(haven,sjlabelled,quanteda,ggplot2,dplyr,tidyr,tidytext,textdata,syuzhet,reactable,htmltools,fontawesome)
+```
+
+Datos:
+
+```{r}
+datos <- read_sav("Datos.sav")
+
+# Eliminar los labels del nombre de las columnas
+datos <- remove_all_labels(datos)
+colnames(datos) <- c("REGISTRO", "RESPUESTA")
+datos$RESPUESTA <- gsub("\\b(k|q)\\b", "que", datos$RESPUESTA, ignore.case = TRUE)
+datos$RESPUESTA <- gsub("\\bencuestas\\b", "encuesta", datos$RESPUESTA, ignore.case = TRUE)
+datos$RESPUESTA <- gsub("\\privadas\\b", "privada", datos$RESPUESTA, ignore.case = TRUE)
+```
+
+### Análisis de polaridad
+
+Al referirnos a polaridad es si es positivo o negativo
+
+```{r}
+datos <- datos %>% mutate(datosID=row_number()) %>% select(datosID,RESPUESTA,REGISTRO)
+
+tidy_datos <- datos %>% 
+  unnest_tokens(word,RESPUESTA) %>% 
+  tibble()
+```
+
+Hay que ver la **conveniencia de eliminar las palabras duplicadas del léxico.**
+
+```{r}
+nrc_sp <- get_sentiment_dictionary(dictionary = "nrc",language = "spanish") %>%
+  filter(sentiment %in% c("positive","negative")) %>% # Con esto filtramos por polaridad únicamente
+  distinct()
+
+nrc_sp$word <- tolower(nrc_sp$word)
+
+lista_duplicados <- nrc_sp %>% 
+  count(word,sort = TRUE) %>% 
+  filter(n>1) %>% 
+  pull(word)
+
+nrc_sp <- nrc_sp %>% 
+  filter(!word %in% lista_duplicados)
+```
+
+Se analiza la polaridad
+
+```{r}
+polaridad <- tidy_datos %>% 
+  inner_join(nrc_sp) %>%
+  group_by(datosID,sentiment) %>% 
+  summarise(total=n())
+
+nrc_sp2 <- nrc_sp
+
+nrc_sp2$sentiment <- gsub("positive", "positivo", nrc_sp2$sentiment)
+nrc_sp2$sentiment <- gsub("negative", "negativo", nrc_sp2$sentiment)
+
+tidy_datos %>%
+  inner_join(nrc_sp2) %>%
+  count(word, sentiment, sort = TRUE) %>% 
+  ungroup() %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment, label = n)) +
+  geom_col(show.legend = FALSE, width = 0.7) +  # Adjust bar width
+  geom_text(position = position_stack(vjust = 0.5), size = 3, color = "black") +  # Add labels to bars
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribución al sentimiento",
+       y = NULL,
+       #title = "Top 10 Words Contributing to Sentiment"
+       ) +  # Add title
+  scale_fill_brewer(palette = "Set2", direction = -1) +  # Choose a color palette
+  theme_minimal() +  
+  theme(axis.text.y = element_text(size = 10), 
+        strip.text = element_text(face = "bold"), 
+        panel.grid.major.y = element_blank(), 
+        panel.grid.minor.y = element_blank(),
+        legend.position = "bottom")  # Position the legend at the bottom
+
+
+polaridad_pivoteado <- polaridad %>%
+  pivot_wider(names_from=sentiment, 
+              values_from = total) # vER SI NO FUNCIONA PORQUE SALEN NAs
+
+polaridad_pivoteado$negative[is.na(polaridad_pivoteado$negative)] <- 0
+polaridad_pivoteado$positive[is.na(polaridad_pivoteado$positive)] <- 0
+```
+
+```{r}
+nrc_sp2 <- nrc_sp
+
+nrc_sp2$value[nrc_sp2$sentiment == "negative"] <- -1
+
+neg_pos <- tidy_datos %>% 
+  inner_join(nrc_sp2) %>%
+  count(word,value,sort = TRUE) %>% mutate(sentimiento=ifelse(value>0,"positivo","negativo")) %>%
+  mutate(total=value*n,cumsum(total)) %>% group_by(sentimiento) %>%
+  summarise(suma=sum(total))
+
+total_sum <- sum(neg_pos$suma)
+
+# Create a new row with "Total" in the first column and the sum of values in the second column
+new_row <- data.frame(sentimiento = "Total", suma = total_sum)
+
+# Add the new row to the dataframe
+neg_pos <- rbind(neg_pos, new_row)
+
+reactable::reactable(neg_pos,
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 0)), fullWidth = F)
+```
+
+Contar número de id
+
+```{r}
+revisiones <- datos %>% 
+  group_by(datosID) %>% 
+  count()
+
+polaridad <- inner_join(polaridad_pivoteado,revisiones,by="datosID") # pOLARIDAD TINENE
+
+polaridad$Polaridad <- polaridad$positive - polaridad$negative
+
+polaridad$`Polaridad media` <- round(polaridad$Polaridad / polaridad$n,2)
+
+polaridad$`Polaridad sd` <- round(sqrt(((polaridad$Polaridad - polaridad$`Polaridad media`)^2)/sum(revisiones$n)),2)
+
+polaridad_esp <- polaridad
+
+htmltools::browsable(
+  tagList(
+    tags$button(
+      tagList(fontawesome::fa("download"), "Descargar como CSV"),
+      onclick = "Reactable.downloadDataCSV('descargar_tabla1', 'polaridad_esp.csv')"
+    ),
+    
+  reactable(polaridad_esp, 
+    pagination=TRUE, 
+    searchable = TRUE, 
+    elementId = "descargar_tabla1",
+                                                  
+              )
+              )
+    )
+```
+
+### NRC en Español
+
+````{r}
+datos <- datos %>%
+  unnest_tokens(word,RESPUESTA) %>% 
+  tibble()
+```
+
+```{r}
+nrc_sp2 <- get_sentiment_dictionary(dictionary = "nrc",language = "spanish") %>%
+  filter(!sentiment %in% c("positive","negative")) %>% # Con esto filtramos por sentimientos
+  distinct()
+
+nrc_sp2$word <- tolower(nrc_sp2$word)
+
+lista_duplicados2 <- nrc_sp2 %>% 
+  count(word,sort = TRUE) %>% 
+  filter(n>1) %>% 
+  pull(word)
+
+nrc_sp2 <- nrc_sp2 %>% 
+  filter(!word %in% lista_duplicados2)
+
+emociones <- datos %>% 
+  inner_join(nrc_sp2) %>%
+  group_by(datosID,sentiment) %>% 
+  summarise(total=n())
+```
+
+```{r}
+emociones_pivoteado <- emociones %>%
+  pivot_wider(names_from=sentiment, 
+              values_from = total)
+
+emociones_pivoteado_esp <- emociones_pivoteado
+
+colnames(emociones_pivoteado_esp) <- c("datosID", "miedo", "confianza", "asco", "tristeza", "anticipación", "sorpresa", "alegría", "enfado")
+
+htmltools::browsable(
+  tagList(
+    tags$button(
+      tagList(fontawesome::fa("download"), "Descargar como CSV"),
+      onclick = "Reactable.downloadDataCSV('descargar_tabla2', 'emociones_pivoteado_esp.csv')"
+    ),
+    
+  reactable(emociones_pivoteado_esp, 
+    pagination=TRUE, 
+    searchable = TRUE, 
+    elementId = "descargar_tabla2",
+                                                  
+              )
+              )
+    )
+```
+
+```{r}
+df_sum <- colSums(emociones_pivoteado_esp[, -1], na.rm = TRUE)
+
+df_sum <- data.frame(
+  Emoción = c("Miedo", "Confianza", "Asco", "Tristeza", "Anticipación", "Sorpresa", "Alegría", "Enfado"),
+  Valor = c(51, 295, 20, 93, 65, 3, 16, 6)
+)
+
+df_sum <- df_sum %>%
+  arrange(desc(Valor))
+
+
+reactable(df_sum)
+
+reactable::reactable(df_sum,columns = list(
+  Emoción = reactable::colDef(width = 125)),
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 0)), fullWidth = F)
+```
+
+
+```{r}
+nrc_sp3 <- nrc_sp2
+
+nrc_sp3$sentiment <- gsub("fear", "Miedo", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("trust", "Confianza", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("disgust", "Asco", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("sadness", "Tristeza", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("anticipation", "Anticipación", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("surprise", "Sorpresa", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("joy", "Alegría", nrc_sp3$sentiment)
+nrc_sp3$sentiment <- gsub("anger", "Enfado", nrc_sp3$sentiment)
+
+tidy_datos %>%
+  inner_join(nrc_sp3) %>%
+  count(datosID,sentiment,sort=TRUE) %>% 
+  ungroup() %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>%
+  ungroup() %>%
+  mutate(datosID = reorder(datosID, n)) %>%
+  ggplot(aes(n, datosID, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribución al sentimiento",
+       y = NULL)
+```
+
+```{r}
+tidy_datos %>%
+  inner_join(nrc_sp3) %>%
+  count(datosID, sentiment, sort = TRUE) %>% 
+  ungroup() %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>%
+  ungroup() %>%
+  mutate(datosID = reorder(datosID, n)) %>%
+  ggplot(aes(x = n, y = datosID, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ sentiment, scales = "free_y", nrow = 2) +
+  scale_fill_brewer(palette = "Set2") +  # Use a different color palette
+  labs(x = "Número de ocurrencias",  # Adjusted x-axis label
+       y = NULL,  # No y-axis label
+       #title = "Top 10 Contribuciones al Sentimiento por Categoría Emocional",  # Added title
+) +  # Added caption
+  theme_minimal() +  # Minimalist theme
+  theme(plot.title = element_text(size = 14, hjust = 0.5, face = "bold"),  # Adjust title size and alignment
+        plot.subtitle = element_text(size = 11, hjust = 0.5),  # Adjust subtitle size and alignment
+        axis.text.y = element_text(size = 8),  # Adjust y-axis text size
+        strip.text = element_text(size = 10))  # Adjust facet text size
+```
+
+El sentimiento que más se repite es el de CONFIANZA Y TRISTEZA 
+
+```{r}
+polaridad_emociones_total <- merge(polaridad, datos, by="datosID", all=TRUE) %>% 
+  distinct()
+
+polaridad_emociones_total <- inner_join(polaridad_emociones_total,emociones_pivoteado,by="datosID")
+
+polaridad_emociones_total_esp <- polaridad_emociones_total
+
+htmltools::browsable(
+  tagList(
+    tags$button(
+      tagList(fontawesome::fa("download"), "Descargar como CSV"),
+      onclick = "Reactable.downloadDataCSV('descargar_tabla3', 'polaridad_emociones_total_esp.csv')"
+    ),
+    
+  reactable(polaridad_emociones_total_esp, 
+    pagination=TRUE, 
+    searchable = TRUE, 
+    elementId = "descargar_tabla3",
+                                                  
+              )
+              )
+    )
+```
+
+### AFINN en Español
+
+Hacer lo anterior con el diccionario AFINN traducido desde el español
+
+```{r}
+datos <- read_sav("Datos.sav")
+
+# Eliminar los labels del nombre de las columnas
+datos <- remove_all_labels(datos)
+colnames(datos) <- c("REGISTRO", "RESPUESTA")
+datos$RESPUESTA <- gsub("\\b(k|q)\\b", "que", datos$RESPUESTA, ignore.case = TRUE)
+datos$RESPUESTA <- gsub("\\bencuestas\\b", "encuesta", datos$RESPUESTA, ignore.case = TRUE)
+datos$RESPUESTA <- gsub("\\privadas\\b", "privada", datos$RESPUESTA, ignore.case = TRUE)
+
+pacman::p_load(readxl)
+traduccion_afinn <- read_excel("Traducción_afinn.xlsx")
+```
+
+```{r}
+datos <- datos %>% mutate(datosID=row_number()) %>% select(datosID,RESPUESTA,REGISTRO)
+
+tidy_datos <- datos %>% 
+  unnest_tokens(word,RESPUESTA) %>% 
+  tibble()
+```
+
+Uso de AFINN
+
+B. Polaridad del corpus
+
+La variable value es numérica, acumular el puntaje positivo/negativo
+
+Esto quiere decir que la polaridad global de las respuestas es -151 --> NEGATIVA
+
+Podemos agrupar por valor pos/neg
+
+Ver la polaridad general repartida por positivo y negativo
+
+```{r}
+neg_pos <- tidy_datos %>% 
+  inner_join(traduccion_afinn) %>%
+  count(espanol,value,sort = TRUE) %>% mutate(sentimiento=ifelse(value>0,"positivo","negativo")) %>%
+  mutate(total=value*n,cumsum(total)) %>% group_by(sentimiento) %>%
+  summarise(suma=sum(total))
+
+total_sum <- sum(neg_pos$suma)
+
+# Create a new row with "Total" in the first column and the sum of values in the second column
+new_row <- data.frame(sentimiento = "Total", suma = total_sum)
+
+# Add the new row to the dataframe
+neg_pos <- rbind(neg_pos, new_row)
+
+reactable::reactable(neg_pos,
+  defaultColDef = reactable::colDef(format = reactable::colFormat(separators = TRUE,digits = 0)), fullWidth = F)
+```
+
+C. Evolución polaridad across corpus: medidas por grupos de entrevistas (ver llamada a group_by para cada léxico)
+
+Bloques de 10 comentarios (10 respuestas)
+
+```{r}
+afinn <- tidy_datos %>% 
+  inner_join(traduccion_afinn) %>% 
+  group_by(index = datosID %/% 10) %>%  #bloques de 10 tweets 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+afinn %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+Bloques de 20 comentarios (20 respuestas)
+
+```{r}
+afinn <- tidy_datos %>% 
+  inner_join(traduccion_afinn) %>% 
+  group_by(index = datosID %/% 20) %>%  #bloques de 10 tweets 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+afinn %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+Bloques de 1 comentario (1 respuesta)
+
+```{r}
+afinn <- tidy_datos %>% 
+  inner_join(traduccion_afinn) %>% 
+  group_by(index = datosID %/% 1) %>%  #bloques de 10 tweets 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+afinn %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+D. Distribución de polaridad
+
+```{r}
+afinn.dist <- tidy_datos %>% 
+  inner_join(traduccion_afinn) %>% 
+  group_by(index = datosID ) %>% 
+  summarise(sentiment = sum(value)) 
+
+afinn.dist %>% ggplot(aes(x=sentiment)) + 
+  geom_bar()
+
+afinn.dist %>%
+  ggplot(aes(x = sentiment)) +
+  geom_bar(fill = "skyblue", color = "black", alpha = 0.8) +  # Adjust bar appearance
+  labs(
+    x = NULL,
+    y = "Frecuencia",
+    title = NULL
+  ) +
+  theme_minimal()
+
+```
+
+E. Términos positivos/negativos más frecuentes y su contribución al tono de los comentarios
+
+```{r}
+traduccion_afinn$sentiment <- ifelse(traduccion_afinn$value > 0, "positivo", "negativo")
+traduccion_afinn <- traduccion_afinn[,-1]
+colnames(traduccion_afinn) <- c("value"  ,  "word" ,  "sentiment")
+
+tidy_datos %>%
+  inner_join(traduccion_afinn) %>%
+  count(word, sentiment, sort = TRUE) %>% 
+  ungroup() %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment, label = n)) +
+  geom_col(show.legend = FALSE, width = 0.7) +  # Adjust bar width
+  geom_text(position = position_stack(vjust = 0.5), size = 3, color = "black") +  # Add labels to bars
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "Contribución al sentimiento",
+       y = NULL,
+       #title = "Top 10 Words Contributing to Sentiment"
+       ) +  # Add title
+  scale_fill_brewer(palette = "Set2", direction = -1) +  # Choose a color palette
+  theme_minimal() +  
+  theme(axis.text.y = element_text(size = 10), 
+        strip.text = element_text(face = "bold"), 
+        panel.grid.major.y = element_blank(), 
+        panel.grid.minor.y = element_blank(),
+        legend.position = "bottom")  # Position the legend at the bottom
+```
+
+```{r}
+tidy_datos %>% 
+  inner_join(traduccion_afinn) %>%
+  group_by(datosID) %>% 
+  summarise(sentimiento=sum(value)) %>% 
+  left_join(datos)
+```
+
+```{r}
+tidy_datos %>%
+  inner_join(traduccion_afinn) %>%
+  count(word, sentiment, sort = TRUE) %>% 
+  ungroup() %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n))
+```
+
+### SENTIMENTR
+
+NO se puede hacer porque es un paquete en inglés y los datos están en español
