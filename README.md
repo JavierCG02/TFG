@@ -3,11 +3,11 @@ El siguiente repositorio incluye los datos y código utilizados para realizar el
 
 Dicho TFG consta de 5 apartados.
 
-En primer lugar, una breve Intruducción incluyendo motivación, objetivo, así como la estructura del documento.
-Una segunda parte, que es el Marco Teórico.
-Una tercera parte, es la Metodología de la Investigación
-Una cuarta parte que son los Resultados
-Y una última parte que es Conclusión y futuro trabajo.
+- Introducción: En esta parte se profundiza sobre la motivación, objetivos, así como la estructura del documento.
+- Marco Teórico: Se analiza el contexto y trabajos previos sobre los estudios de mercado y opinión, la codificación de preguntas abiertas en encuestas, el procesamientos de datos masivos, la minería de textos y el análisis de sentimiento.
+- Metodología de la investigación: Se detalla la diferente metodología y técnicas a emplear en el trabajo.
+- Resultados: Se aplican las técnicas detalladas en la Metodología, a los datos en cuestión.
+- Conclusión y futuro trabajo: Se analizan los resultados y se proponen futuras líneas de investigación.
 
 ## Datos
 El archivo Datos.sav incluye las respuestas a las preguntas abiertas.
