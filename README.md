@@ -5,8 +5,8 @@ Dicho TFG consta de 5 apartados.
 
 - Introducción: En esta parte se profundiza sobre la motivación, objetivos, así como la estructura del documento.
 - Marco Teórico: Se analiza el contexto y trabajos previos sobre los estudios de mercado y opinión, la codificación de preguntas abiertas en encuestas, el procesamientos de datos masivos, la minería de textos y el análisis de sentimiento.
-- Metodología de la investigación: Se detalla la diferente metodología y técnicas a emplear en el trabajo.
-- Resultados: Se aplican las técnicas detalladas en la Metodología, a los datos en cuestión.
+- Metodología de la investigación: Se detalla la metodología y técnicas a emplear en el trabajo.
+- Resultados: Se aplican las técnicas comentadas en la Metodología, a los datos en cuestión.
 - Conclusión y futuro trabajo: Se analizan los resultados y se proponen futuras líneas de investigación.
 
 ## Datos
